@@ -1,8 +1,9 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException,Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 
 from database import engine, Base, SessionLocal
 import models
@@ -39,9 +40,16 @@ async def custom_http_exception_handler(request,exc):
         }
     )
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=400, # Translating 422 to a standard 400 Bad Request
+        content={"status": "error", "message": "Invalid request data format"},
+    )
+
 # endpoints
-@app.post("/api/profiles",response_model=schemas.SuccessResponse)
-async def create_profile(profile_in:schemas.ProfileCreate, db:Session = Depends(get_db)):
+@app.post("/api/profiles",response_model=schemas.SuccessResponse,status_code=status.HTTP_201_CREATED)
+async def create_profile(profile_in: schemas.ProfileCreate, response: Response, db: Session = Depends(get_db)):
     clean_name = profile_in.name.strip().lower()
 
     external_data = await clients.fetch_profile_data(clean_name)
@@ -71,7 +79,8 @@ async def create_profile(profile_in:schemas.ProfileCreate, db:Session = Depends(
     except IntegrityError:
         db.rollback()
         existing_profile = db.query(models.Profile).filter(models.Profile.name == clean_name).first()
-        return{"message": "Profile already exists", "data": existing_profile}
+        response.status_code = status.HTTP_200_OK
+        return {"message": "Profile already exists", "data": existing_profile}
     
 
 @app.get("/api/profiles/{profile_id}", response_model=schemas.SuccessResponse)
@@ -104,3 +113,15 @@ def list_profiles(
 
     results = query.all()
     return {"status": "success", "message": "Profiles retrieved successfully", "data": results}
+
+
+@app.delete("/api/profiles/{profile_id}", status_code=204)
+def delete_profile(profile_id: str, db: Session = Depends(get_db)):
+    profile = db.query(models.Profile).filter(models.Profile.id == profile_id).first()
+    
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+        
+    db.delete(profile)
+    db.commit()
+    return 
