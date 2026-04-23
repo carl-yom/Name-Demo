@@ -111,10 +111,7 @@ def search_profiles(q:str, db: Session = Depends(get_db)):
 
     # Uninterpretable Queries
     if not filters:
-        return{
-            "status":"error",
-            "message": "Unable to interpret query"
-        }
+        raise HTTPException(status_code=400, detail="Unable to interpret query")
     # unpack filters of the dictionary directly in the query builder
     profiles = crud.get_profiles_from_db(db = db, **filters)
 
@@ -136,6 +133,8 @@ def get_all_profiles(
     limit: int = Query(10, ge=1, le= 50),
     db: Session = Depends(get_db)
 ):
+    if page < 1 or limit < 1 or limit > 50:
+        raise HTTPException(status_code=400, detail="Invalid query parameters")
     query = db.query(models.Profile)
     if gender:
         query = query.filter(models.Profile.gender == gender.strip().lower())
@@ -159,6 +158,10 @@ def get_all_profiles(
 
     # sorting
     valid_sort_columns = {"age", "created_at","gender_probability"}
+
+    if sort_by and sort_by not in valid_sort_columns:
+        raise HTTPException(status_code=400, detail="Invalid query parameters")
+
     if sort_by in valid_sort_columns:
         column = getattr(models.Profile, sort_by)
         if order.lower() == "asc":
