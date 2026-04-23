@@ -10,10 +10,11 @@ class ProfileResponse(BaseModel):
     name: str
     gender: str
     gender_probability: float
-    sample_size: int
+    # sample_size: int
     age: int
     age_group: str
     country_id: str
+    country_name: str
     country_probability: float
     created_at: datetime
 
@@ -28,3 +29,10 @@ class SuccessResponse(BaseModel):
 class ErrorResponse(BaseModel):
     status: str = "error"
     message: str
+
+class PaginatedProfileResponse(BaseModel):
+    status:str = "success"
+    page : int
+    limit: int
+    total: int
+    data: list[ProfileResponse]

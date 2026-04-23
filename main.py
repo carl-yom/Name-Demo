@@ -1,16 +1,36 @@
-from fastapi import FastAPI, Depends, HTTPException,Response, status
+from fastapi import FastAPI, Depends, HTTPException,Response, status, Query
 from fastapi.responses import JSONResponse
+from sqlalchemy import asc, desc
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
+from contextlib import asynccontextmanager
+import json
 
 from database import engine, Base, SessionLocal
 import models
 import schemas
 import clients
+import crud
+import nlp_parser
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app:FastAPI):
+    # 1. Boot up: Load the JSON file into the parser's cache
+    try:
+        with open("countries.json", "r") as f:
+            countries_data = json.load(f)
+            nlp_parser.COUNTRY_CACHE.update(countries_data)
+        print(f"Loaded {len(nlp_parser.COUNTRY_CACHE)} country mappings into memory.")
+    except FileNotFoundError:
+        print("WARNING: countries.json not found. Country parsing will fail.")
+        
+    yield # Server runs here
+    
+    # 2. Shut down
+    nlp_parser.COUNTRY_CACHE.clear()
+app = FastAPI(lifespan = lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -83,6 +103,81 @@ async def create_profile(profile_in: schemas.ProfileCreate, response: Response, 
         return {"message": "Profile already exists", "data": existing_profile}
     
 
+
+@app.get("/api/profiles/search")
+def search_profiles(q:str, db: Session = Depends(get_db)):
+    tokens = nlp_parser.clean_and_split(q)
+    filters = nlp_parser.extract_filters(tokens)
+
+    # Uninterpretable Queries
+    if not filters:
+        return{
+            "status":"error",
+            "message": "Unable to interpret query"
+        }
+    # unpack filters of the dictionary directly in the query builder
+    profiles = crud.get_profiles_from_db(db = db, **filters)
+
+    return{
+        "status": "success",
+        "data": profiles
+    }
+
+@app.get("/api/profiles", response_model=schemas.PaginatedProfileResponse)
+def get_all_profiles(
+    gender: str|None = None, 
+    age_group: str| None = None, country_id : str |None = None,min_age:int|None = None, 
+    max_age:int|None = None,
+    min_gender_probability: float | None = None,
+    min_country_probability : float | None = None ,
+    sort_by : str = Query("created_at"),
+    order:str = Query("desc"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le= 50),
+    db: Session = Depends(get_db)
+):
+    query = db.query(models.Profile)
+    if gender:
+        query = query.filter(models.Profile.gender == gender.strip().lower())
+    if age_group:
+        query = query.filter(models.Profile.age_group == age_group.strip().lower())
+    if country_id:
+        query = query.filter(models.Profile.country_id == country_id.strip().upper())
+    
+    if min_age is not None:
+        query = query.filter(models.Profile.age >= min_age)
+    if max_age is not None:
+        query = query.filter(models.Profile.age <= max_age)
+        
+    if min_gender_probability is not None:
+        query = query.filter(models.Profile.gender_probability >= min_gender_probability)
+    if min_country_probability is not None:
+        query = query.filter(models.Profile.country_probability >= min_country_probability)
+
+    # total matching records
+    total_records = query.count()
+
+    # sorting
+    valid_sort_columns = {"age", "created_at","gender_probability"}
+    if sort_by in valid_sort_columns:
+        column = getattr(models.Profile, sort_by)
+        if order.lower() == "asc":
+            query= query.order_by(asc(column))
+        else:
+            query = query.order_by(desc(column))
+
+    # pagination
+    offset_value = (page -1) * limit
+    results = query.offset(offset_value).limit(limit).all()
+
+    return{
+        "status": "success",
+        "page":page,
+        "limit" : limit,
+        "total" : total_records,
+        "data": results
+    }
+
 @app.get("/api/profiles/{profile_id}", response_model=schemas.SuccessResponse)
 def get_profile(profile_id:str, db:Session = Depends(get_db)):
     profile = db.query(models.Profile).filter(models.Profile.id == profile_id).first()
@@ -93,26 +188,6 @@ def get_profile(profile_id:str, db:Session = Depends(get_db)):
     return {"message": "Profile retrieved sucessfully", "data": profile}
 
 
-@app.get("/api/profiles")
-def list_profiles(
-    gender: str = None, 
-    country_id: str = None, 
-    age_group: str = None, 
-    db: Session = Depends(get_db)
-):
-    # base query
-    query = db.query(models.Profile)
-
-    if gender:
-        query = query.filter(models.Profile.gender == gender.strip().lower())
-    if country_id:
-        # Country IDs remain upercase uppercase
-        query = query.filter(models.Profile.country_id == country_id.strip().upper()) 
-    if age_group:
-        query = query.filter(models.Profile.age_group == age_group.strip().lower())
-
-    results = query.all()
-    return {"status": "success", "message": "Profiles retrieved successfully", "data": results}
 
 
 @app.delete("/api/profiles/{profile_id}", status_code=204)
