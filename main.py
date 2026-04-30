@@ -506,7 +506,7 @@ async def github_callback_web(code: str, request : Request, response: Response, 
         user = models.User(
             github_id = gh_id,
             username = github_user["login"],
-            email = github_user.get("email")
+            email = github_user.get("email"),
             avatar_url=github_user.get("avatar_url")
         )
 
@@ -580,7 +580,7 @@ async def github_cli_exchange(request_data: CLIExchangeRequest, db:Session = Dep
         user = models.User(
             github_id=gh_id,
             username=github_user["login"],
-            email=github_user.get("email")
+            email=github_user.get("email"),
             avatar_url=github_user.get("avatar_url")
         )
         db.add(user)
