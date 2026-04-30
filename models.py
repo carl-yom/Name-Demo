@@ -33,17 +33,24 @@ class Profile(Base):
 
 class User(Base):
     __tablename__ = "users"
-
+    
+    # Primary Key
     id = Column(String, primary_key=True, index=True, default=generate_uuid7)
-
+    
+    # GitHub Identity
     github_id = Column(String, unique=True, index=True, nullable=False)
     username = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=True)
-
+    avatar_url = Column(String, nullable=True) # TRD requirement
+    
+    # Permissions & Status
     role = Column(
         Enum("analyst", "admin", name="user_roles"),
         default="analyst",
         nullable=False
     )
-
     is_active = Column(Boolean, default=True, nullable=False)
+    
+    # Timestamps (TRD requirements)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
