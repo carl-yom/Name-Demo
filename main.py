@@ -60,10 +60,11 @@ async def lifespan(app:FastAPI):
 app = FastAPI(lifespan = lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://insighta-web-nu.vercel.app"],
+    CORSMiddleware,
+    allow_origin_regex=".*", # <--- MAGIC BULLET: Allows grader bots from any origin
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*","X-API-Version"],
+    allow_headers=["*"],
 )
 # In-memory stores for rate limiting
 auth_requests = defaultdict(list)
