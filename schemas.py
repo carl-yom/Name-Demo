@@ -35,4 +35,6 @@ class PaginatedProfileResponse(BaseModel):
     page : int
     limit: int
     total: int
+    total_pages: int
+    links: dict[str, str | None]
     data: list[ProfileResponse]

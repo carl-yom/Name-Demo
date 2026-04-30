@@ -8,7 +8,8 @@ def get_profiles_from_db(
     min_age: int | None = None,
     max_age: int | None = None,
     age_group: str | None = None,
-    sort_by: str = "created_at"
+    sort_by: str = "created_at",
+    page=1, limit=10
 ):
     # 1. Start the base query
     query = db.query(models.Profile)
@@ -28,5 +29,8 @@ def get_profiles_from_db(
     # 3. Apply the dynamic sorting
     sort_column = getattr(models.Profile, sort_by, models.Profile.created_at)
     query = query.order_by(sort_column.desc())
-    
-    return query.all()
+
+    total_count = query.count()
+    offset = (page - 1) * limit
+    profiles = query.offset(offset).limit(limit).all()
+    return total_count, profiles

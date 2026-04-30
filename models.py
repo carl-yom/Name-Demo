@@ -1,6 +1,6 @@
 import uuid6
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Integer,Float, DateTime
+from sqlalchemy import Column, String, Integer,Float, DateTime, Boolean, Enum
 from sqlalchemy.sql import func
 from database import Base
 
@@ -29,3 +29,21 @@ class Profile(Base):
     country_probability = Column(Float, nullable=False)
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid7)
+
+    github_id = Column(String, unique=True, index=True, nullable=False)
+    username = Column(String, nullable=False)
+    email = Column(String, unique=True, nullable=True)
+
+    role = Column(
+        Enum("analyst", "admin", name="user_roles"),
+        default="analyst",
+        nullable=False
+    )
+
+    is_active = Column(Boolean, default=True, nullable=False)
