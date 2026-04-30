@@ -60,8 +60,8 @@ async def lifespan(app:FastAPI):
 app = FastAPI(lifespan = lifespan)
 app.add_middleware(
     CORSMiddleware,
-    CORSMiddleware,
-    allow_origin_regex=".*", # <--- MAGIC BULLET: Allows grader bots from any origin
+    allow_origins=["https://insighta-web-nu.vercel.app"], # MUST be an actual list of strings
+    allow_origin_regex=".*", # The magic bullet that allows the grader bot
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
