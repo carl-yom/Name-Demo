@@ -56,10 +56,10 @@ async def lifespan(app:FastAPI):
 app = FastAPI(lifespan = lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://insighta-web-nu.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*","X-API-Version"],
 )
 
 Base.metadata.create_all(bind = engine)
@@ -82,6 +82,13 @@ async def custom_http_exception_handler(request,exc):
             "message":exc.detail
         }
     )
+
+# @app.exception_handler(HTTPException)
+# async def custom_http_exception_handler(request, exc):
+#     return JSONResponse(
+#         status_code=exc.status_code,
+#         content={"status": "error", "message": exc.detail},
+#     )
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
@@ -379,7 +386,7 @@ def github_login_web():
         value = code_verifier,
         httponly = True,
         max_age = 300,
-        samesite = "lax"
+        samesite = "none"
     )
 
     return response
@@ -463,7 +470,7 @@ async def github_callback_web(code: str, request : Request, response: Response, 
 
     # 8. Attach the cookies to the redirect
     response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=180, samesite="lax", secure=False)
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, max_age=300, samesite="lax", secure=False)
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, max_age=300, samesite="none", secure=False)
     response.delete_cookie("pkce_verifier")
 
     # 9. Send the user home
