@@ -67,9 +67,10 @@ def require_admin(current_user: models.User = Depends(get_current_active_user)):
 
 def verify_api_version(x_api_version: str | None = Header(default=None, alias="X-API-Version")):
     if x_api_version is None:
-        raise HTTPException(status_code=400, detail="Missing X-API-Version header. Please specify version.")
-        
+        # MUST EXACTLY MATCH TRD STRING
+        raise HTTPException(status_code=400, detail="API version header required")
+    
     if x_api_version != "1":
-        raise HTTPException(status_code=400, detail=f"Unsupported API Version: {x_api_version}. Expected '1'.")
+        raise HTTPException(status_code=400, detail="API version header required")
         
     return x_api_version
