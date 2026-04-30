@@ -65,7 +65,7 @@ def require_admin(current_user: models.User = Depends(get_current_active_user)):
         )
     return current_user
 
-def verify_api_version(x_api_version: str = Header(default=None)):
+def verify_api_version(x_api_version: str | None = Header(default=None, alias="X-API-Version")):
     if x_api_version is None:
         raise HTTPException(status_code=400, detail="Missing X-API-Version header. Please specify version.")
         
