@@ -1,19 +1,42 @@
-from fastapi import FastAPI, Depends, HTTPException,Response, status, Query
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Depends, HTTPException,Response,Request, status, Query
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import asc, desc
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
+import os
+import base64
+import hashlib
+import urllib.parse
 import json
-
 from database import engine, Base, SessionLocal
 import models
 import schemas
 import clients
 import crud
 import nlp_parser
+import httpx
+from datetime import datetime, timedelta
+from jose import jwt
+from pydantic import BaseModel
+from security import get_current_active_user, verify_api_version
+import math
+import csv
+import io
+from dotenv import load_dotenv
+
+load_dotenv()
+
+WEB_CLIENT_ID = os.getenv("WEB_GITHUB_CLIENT_ID")
+WEB_CLIENT_SECRET = os.getenv("WEB_GITHUB_CLIENT_SECRET")
+CLI_CLIENT_ID = os.getenv("CLI_GITHUB_CLIENT_ID")
+CLI_CLIENT_SECRET = os.getenv("CLI_GITHUB_CLIENT_SECRET")
+WEB_REDIRECT_URI = os.getenv("WEB_GITHUB_REDIRECT_URI")
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHM")
+
 
 @asynccontextmanager
 async def lifespan(app:FastAPI):
@@ -67,6 +90,40 @@ async def validation_exception_handler(request, exc):
         content={"status": "error", "message": "Invalid request data format"},
     )
 
+
+def generate_csv_rows(profiles):
+    # Create an in-memory string buffer
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # 1. Write the Header Row
+    writer.writerow([
+        "ID", "Name", "Gender", "Gender Probability", 
+        "Age", "Age Group", "Country ID", "Country Name", "Created At"
+    ])
+    # Yield the header, then clear the buffer
+    yield output.getvalue()
+    output.seek(0)
+    output.truncate(0)
+
+    # 2. Write the Data Rows
+    for profile in profiles:
+        writer.writerow([
+            profile.id,
+            profile.name,
+            profile.gender,
+            profile.gender_probability,
+            profile.age,
+            profile.age_group,
+            profile.country_id,
+            profile.country_name,
+            profile.created_at.isoformat() if profile.created_at else ""
+        ])
+        # Yield the row, then clear the buffer
+        yield output.getvalue()
+        output.seek(0)
+        output.truncate(0)
+
 # endpoints
 @app.post("/api/profiles",response_model=schemas.SuccessResponse,status_code=status.HTTP_201_CREATED)
 async def create_profile(profile_in: schemas.ProfileCreate, response: Response, db: Session = Depends(get_db)):
@@ -104,24 +161,94 @@ async def create_profile(profile_in: schemas.ProfileCreate, response: Response, 
     
 
 
-@app.get("/api/profiles/search")
-def search_profiles(q:str, db: Session = Depends(get_db)):
+@app.get("/api/profiles/search", response_model=schemas.PaginatedProfileResponse)
+def search_profiles(
+    request: Request, 
+    q: str,
+    page: int = 1,    # Default pagination
+    limit: int = 10,  # Default pagination
+    current_user: models.User = Depends(get_current_active_user),
+    api_version: str = Depends(verify_api_version), 
+    db: Session = Depends(get_db)
+):
+    print(f"User {current_user.username} is searching profiles for: '{q}'")
+    
+    # 1. Boundary checks
+    if page < 1 or limit < 1 or limit > 50:
+        raise HTTPException(status_code=400, detail="Invalid pagination parameters")
+
+    # 2. NLP Parsing
     tokens = nlp_parser.clean_and_split(q)
     filters = nlp_parser.extract_filters(tokens)
 
-    # Uninterpretable Queries
     if not filters:
         raise HTTPException(status_code=400, detail="Unable to interpret query")
-    # unpack filters of the dictionary directly in the query builder
-    profiles = crud.get_profiles_from_db(db = db, **filters)
 
-    return{
+    # 3. Pass pagination params down to your CRUD layer
+    total_records, profiles = crud.get_profiles_from_db(
+        db=db, 
+        page=page, 
+        limit=limit, 
+        **filters
+    )
+
+    # 4. Advanced Pagination Math
+    total_pages = math.ceil(total_records / limit) if total_records > 0 else 1
+
+    # 5. HATEOAS Links (Preserves the 'q' parameter automatically!)
+    base_url = request.url
+    links = {
+        "self": str(base_url),
+        "next": str(base_url.include_query_params(page=page + 1)) if page < total_pages else None,
+        "prev": str(base_url.include_query_params(page=page - 1)) if page > 1 else None
+    }
+
+    return {
         "status": "success",
+        "page": page,
+        "limit": limit,
+        "total": total_records,
+        "total_pages": total_pages,
+        "links": links,
         "data": profiles
     }
 
+@app.get("/api/profiles/export")
+def export_profiles(
+    # 1. Security & Versioning
+    current_user: models.User = Depends(get_current_active_user), 
+    api_version: str = Depends(verify_api_version), 
+    db: Session = Depends(get_db),
+    
+    gender: str = None,
+    age_group: str = None,
+    country_id: str = None,
+    min_age: int = None,
+    max_age: int = None
+):
+    print(f"User {current_user.username} is exporting data.")
+
+    total_records, profiles = crud.get_profiles_from_db(
+        db=db,
+        # Set limit artificially high to grab everything matching the filter
+        limit=100000, 
+        page=1,
+        gender=gender,
+        age_group=age_group,
+        country_id=country_id,
+        min_age=min_age,
+        max_age=max_age
+    )
+
+    response = StreamingResponse(generate_csv_rows(profiles), media_type="text/csv")
+    response.headers["Content-Disposition"] = "attachment; filename=insighta_export.csv"
+    
+    return response
 @app.get("/api/profiles", response_model=schemas.PaginatedProfileResponse)
 def get_all_profiles(
+    request: Request,
+    current_user: models.User = Depends(get_current_active_user),
+    api_version: str = Depends(verify_api_version),
     gender: str|None = None, 
     age_group: str| None = None, country_id : str |None = None,min_age:int|None = None, 
     max_age:int|None = None,
@@ -133,6 +260,7 @@ def get_all_profiles(
     limit: int = Query(10, ge=1, le= 50),
     db: Session = Depends(get_db)
 ):
+    print(f"User {current_user.username} is fetching profiles.")
     if page < 1 or limit < 1 or limit > 50:
         raise HTTPException(status_code=400, detail="Invalid query parameters")
     query = db.query(models.Profile)
@@ -173,11 +301,23 @@ def get_all_profiles(
     offset_value = (page -1) * limit
     results = query.offset(offset_value).limit(limit).all()
 
+    total_pages = math.ceil(total_records / limit) if total_records > 0 else 1
+
+    base_url = request.url
+
+    links = {
+        "self": str(base_url),
+        "next": str(base_url.include_query_params(page=page + 1)) if page < total_pages else None,
+        "prev": str(base_url.include_query_params(page=page - 1)) if page > 1 else None
+    }
+
     return{
         "status": "success",
         "page":page,
         "limit" : limit,
         "total" : total_records,
+        "total_pages": total_pages,
+        "links": links,
         "data": results
     }
 
@@ -203,3 +343,196 @@ def delete_profile(profile_id: str, db: Session = Depends(get_db)):
     db.delete(profile)
     db.commit()
     return 
+
+# Portal functionalities
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+
+def generate_pkce_pair():
+    # The Verifier
+    verifier_bytes = os.urandom(32)
+    code_verifier = base64.urlsafe_b64encode(verifier_bytes).decode("utf-8").rstrip("=")
+
+    # The challenge SHA-256
+    digest = hashlib.sha256(code_verifier.encode('utf-8')).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).decode('utf-8').rstrip('=')
+
+    return code_verifier, code_challenge
+
+
+@app.get("/auth/web/login")
+def github_login_web():
+    code_verifier, code_challenge = generate_pkce_pair()
+
+    params = {
+        "client_id":WEB_CLIENT_ID,
+        "scope": "read:user user:email",
+        "code_challenge": code_challenge,
+        "code_challenge_method" : "S256"
+    }
+
+    url = f"https://github.com/login/oauth/authorize?{urllib.parse.urlencode(params)}"
+
+    response = RedirectResponse(url)
+
+    response.set_cookie(
+        key = "pkce_verifier",
+        value = code_verifier,
+        httponly = True,
+        max_age = 300,
+        samesite = "lax"
+    )
+
+    return response
+
+
+
+
+def create_jwt_token(data:dict, expires_delta : timedelta):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + expires_delta
+    return jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=ALGORITHM)
+
+@app.get("/auth/web/callback")
+async def github_callback_web(code: str, request : Request, response: Response, db: Session = Depends(get_db)):
+    
+    # Retrieve the stashed verifier
+    code_verifier = request.cookies.get("pkce_verifier")
+
+    if not code_verifier:
+        raise HTTPException(status_code = 400, detail = "Authentication session expired. Please try again.")
+    
+    # swap code + verifier for a Github Access Token
+    async with httpx.AsyncClient() as client:
+        token_response = await client.post("https://github.com/login/oauth/access_token", headers = {
+           "Accept": "application/json" 
+        }, data={
+            "client_id": WEB_CLIENT_ID,
+            "client_secret":WEB_CLIENT_SECRET,
+            "code": code,
+            "code_verifier": code_verifier
+        })  
+        token_data = token_response.json()
+
+        if "error" in token_data:
+            raise HTTPException(status_code=400, detail = token_data.get("error_description", "OAuth Failed"))
+        
+        github_access_token = token_data["access_token"]
+
+        # fetch user identity with github token
+        user_response = await client.get(
+            "https://api.github.com/user",
+            headers={"Authorization":f"Bearer {github_access_token}"}
+        )
+        github_user = user_response.json()
+
+    # Data Upsert
+    gh_id = str(github_user["id"])
+
+    user = db.query(models.User).filter(models.User.github_id == gh_id).first()
+
+    if not user:
+        user = models.User(
+            github_id = gh_id,
+            username = github_user["login"],
+            email = github_user.get("email")
+        )
+
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    # check suspended users
+    if not user.is_active:
+        raise HTTPException(status_code = 403, detail = "Account suspended.")
+    
+    # Insighta Labs Token (RD: Access=3m, Refresh=5m)
+
+    access_token = create_jwt_token(
+        data = {"sub":user.id, "role": user.role},
+        expires_delta=timedelta(minutes = 3)
+    )
+
+    refresh_token = create_jwt_token(
+        data = {"sub": user.id, "type": "refresh"}, expires_delta=timedelta(minutes = 5)
+    )
+
+    # 7. Deliver the tokens securely via HTTP-Only Cookies
+
+    # redirect user to dashboard 
+    response = RedirectResponse(url=WEB_REDIRECT_URI or "http://localhost:8000/auth/web/callback")
+
+    # 8. Attach the cookies to the redirect
+    response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=180, samesite="lax", secure=False)
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, max_age=300, samesite="lax", secure=False)
+    response.delete_cookie("pkce_verifier")
+
+    # 9. Send the user home
+    return response
+    
+class CLIExchangeRequest(BaseModel):
+        code: str
+        code_verifier : str
+
+    # POST endpoint for the CLI
+@app.post("/auth/cli/exchange")
+async def github_cli_exchange(request_data: CLIExchangeRequest, db:Session = Depends(get_db)):
+    # swap code + verifier for a Github Access Token
+    async with httpx.AsyncClient() as client:
+        token_response = await client.post("https://github.com/login/oauth/access_token",headers = {"Accept": "application/json"}, data= {
+            "client_id": CLI_CLIENT_ID,
+            "client_secret":CLI_CLIENT_SECRET,
+            "code": request_data.code,
+            "code_verifier": request_data.code_verifier
+        })
+
+        token_data = token_response.json()
+        
+        if "error" in token_data:
+            raise HTTPException(status_code=400, detail=token_data.get("error_description", "OAuth Failed"))
+        
+        github_access_token = token_data["access_token"]
+
+        user_response = await client.get(
+        "https://api.github.com/user",
+        headers={"Authorization": f"Bearer {github_access_token}"})
+
+        github_user = user_response.json()
+
+    # Upsert
+    gh_id = str(github_user["id"])
+    user = db.query(models.User).filter(models.User.github_id == gh_id).first()
+
+    if not user:
+        user = models.User(
+            github_id=gh_id,
+            username=github_user["login"],
+            email=github_user.get("email")
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account suspended.")
+
+    # STEP 4: Generate Insighta Labs Tokens
+    access_token = create_jwt_token(
+        data={"sub": user.id, "role": user.role}, 
+        expires_delta=timedelta(minutes=3)
+    )
+    refresh_token = create_jwt_token(
+        data={"sub": user.id, "type": "refresh"}, 
+        expires_delta=timedelta(minutes=5)
+    )
+
+    #Securely deliver the tokens as raw JSON (NO COOKIES!)
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": 180,
+        "user": {
+            "username": user.username,
+            "role": user.role
+        }
+    }
