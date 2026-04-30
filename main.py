@@ -386,7 +386,8 @@ def github_login_web():
         value = code_verifier,
         httponly = True,
         max_age = 300,
-        samesite = "none"
+        samesite = "none",
+        secure = True
     )
 
     return response
@@ -466,11 +467,11 @@ async def github_callback_web(code: str, request : Request, response: Response, 
     # 7. Deliver the tokens securely via HTTP-Only Cookies
 
     # redirect user to dashboard 
-    response = RedirectResponse(url=WEB_REDIRECT_URI or "http://localhost:8000/auth/web/callback")
+    response = RedirectResponse(url=f"{WEB_REDIRECT_URI}/dashboard")
 
     # 8. Attach the cookies to the redirect
-    response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=180, samesite="lax", secure=False)
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, max_age=300, samesite="none", secure=False)
+    response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=180, samesite="none", secure=True)
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, max_age=300, samesite="none", secure=True)
     response.delete_cookie("pkce_verifier")
 
     # 9. Send the user home
