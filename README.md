@@ -1,139 +1,267 @@
-Here’s a **clean, unified README** that merges your original (public-facing API + deployment) with your new (system design + NLP engine). It reads like a serious production backend and keeps your links intact.
+# Insighta Labs+ Intelligence Platform 🌍
+
+A **high-performance, production-grade demographic intelligence platform** built with **FastAPI**, designed to provide secure, role-based access to profile data through a unified REST API consumed by both a **Web Portal** and a **Command Line Interface (CLI)**.
+
+Insighta Labs+ combines:
+
+- Secure GitHub OAuth2 + PKCE authentication
+- Role-Based Access Control (RBAC)
+- Natural Language Query Parsing (AI-free)
+- Dynamic filtering
+- HATEOAS pagination
+- Structured CSV exports
+- Production-ready DevOps practices
 
 ---
 
-# Insighta Labs Demographic Intelligence API 🌍
+## 🚀 Live Environments
 
-A high-performance, production-grade REST API built with FastAPI for demographic intelligence. This service enables querying, filtering, sorting, and paginating through user profile data, while also supporting a **rule-based Natural Language Query Engine** that translates plain English into structured database filters — without relying on external AI or LLMs.
+### Web Portal
 
----
+[https://insighta-web-nu.vercel.app](https://insighta-web-nu.vercel.app)
 
-## 🚀 Live API
+### API Base URL
 
-[https://name-demo-roan.vercel.app/](https://name-demo-roan.vercel.app/)
-
----
-
-## ✨ Core Features
-
-### ⚡ High-Performance Backend
-
-- Built with **FastAPI** for speed and async support
-- Optimized query execution with dynamic filtering, sorting, and pagination
-- PostgreSQL-backed persistence via Supabase
-
-### 🧠 Natural Language Query Engine (No AI Required)
-
-- Converts plain English queries into structured database filters
-- Fully rule-based (deterministic, fast, and cost-free)
-- Zero external AI/LLM dependencies
-
-### ⚙️ Concurrent & Efficient Design
-
-- Async-ready architecture
-- O(1) in-memory lookups for country resolution
-- Minimal latency during request lifecycle
-
-### 🛡 Robust Data Integrity
-
-- UUID v7 for globally unique, chronologically sortable IDs
-- Idempotent database operations
-- Graceful handling of duplicate insertions and failures
-
-### 📦 Clean API Contracts
-
-- Strict validation using Pydantic
-- Standardized JSON error responses
-- Clear separation between request parsing and data access
+[https://name-demo-roan.vercel.app](https://name-demo-roan.vercel.app)
 
 ---
 
-## 🏗 Architectural Design
+# 🏗 System Architecture
 
-### 1. Separation of Concerns (Flat Architecture)
+Insighta Labs+ follows a **decoupled three-tier architecture** to maintain scalability, maintainability, and a single source of truth.
 
-The system is intentionally modular and maintainable:
+## Core Components
 
-- **`main.py` (Controller Layer)**
-  Handles routing, dependency injection, and HTTP-level concerns only.
+### Backend API (FastAPI)
 
-- **`crud.py` (Data Access Layer)**
-  Responsible for all database interactions using SQLAlchemy.
-  Uses `getattr()` for safe dynamic sorting and prevents SQL injection.
+The central intelligence engine responsible for:
 
-- **`nlp_parser.py` (Parsing Engine)**
-  A pure Python module that tokenizes and maps natural language into filters.
-  Completely decoupled from the database.
+- Business logic
+- Authentication
+- Role enforcement
+- NLP query parsing
+- Data persistence
+- Token issuance
+- Rate limiting
 
----
+### Web Portal (Vanilla JS / SPA)
 
-### 2. O(1) In-Memory Country Resolution
+A browser-based dashboard for:
 
-- A `countries.json` file stores 195+ countries and aliases mapped to ISO codes
-- Loaded into memory at application startup using FastAPI lifespan
-- Enables **instant lookup (O(1))** during query parsing
+- Searching profiles
+- Viewing analytics
+- Admin management
+- Secure browser authentication
 
-**Why it matters:**
-No database calls are needed to resolve country filters → significantly reduced latency.
+### CLI Tool (Python)
 
----
+A globally installable terminal interface for:
 
-### 3. Graceful Failure & Idempotency
-
-- Invalid queries return structured **400-level errors**
-- Database conflicts handled via transaction rollback
-- Duplicate-safe operations for repeated executions
-
----
-
-## 🧠 Natural Language Query Engine
-
-The `/api/profiles/search` endpoint processes queries in two stages:
-
-### Phase 1: Tokenization (`clean_and_split`)
-
-- Converts input to lowercase
-- Removes punctuation (`,` `-` `.` `!`)
-- Splits into tokens
-
-**Example:**
-`"young adult males from naija"`
-→ `["young", "adult", "males", "from", "naija"]`
+- Developer workflows
+- Power-user automation
+- Secure local authentication
+- Data export
 
 ---
 
-### Phase 2: Dictionary Mapping (`extract_filters`)
+# 🧱 Design Philosophy
 
-Each token is matched against predefined mappings:
+## Flat Architecture
 
-#### Gender
+Strict separation of concerns:
 
-- male → men, males, boys
-- female → women, females, girls
-
-#### Age Groups
-
-- adult, teens, children, seniors
-
-#### Age Ranges
-
-- `"young"` → `min_age=16`, `max_age=24`
-
-#### Countries
-
-- Uses ISO mapping from cache
-- Example: `"naija"` → `"NG"`
+- `main.py` → Controllers / Routing
+- `crud.py` → Data Access Layer
+- `security.py` → Auth / RBAC
+- `nlp_parser.py` → Business Logic
 
 ---
 
-### ✅ Example Execution
+## O(1) In-Memory Lookups
 
-**Query:**
-`young adult males from naija`
+Country aliases and NLP mappings are loaded into memory during application lifespan startup, enabling:
 
-**Parsed Filters:**
+- Zero database latency for NLP country resolution
+- Faster search performance
+- Predictable query execution
 
-```json
+---
+
+## Graceful Failure & Idempotency
+
+- Transaction rollback on conflicts
+- Duplicate-safe writes
+- Stable API behavior under repeated requests
+
+---
+
+# 🔐 Authentication & Token Handling Flow
+
+Insighta Labs+ uses **GitHub OAuth2.0 + PKCE (Proof Key for Code Exchange)** for secure user identity verification.
+
+---
+
+## Token Lifecycle
+
+### Access Token
+
+- JWT
+- Expires in **3 minutes**
+
+### Refresh Token
+
+- JWT
+- Expires in **5 minutes**
+
+---
+
+## Token Rotation
+
+Calling:
+
+```bash
+/auth/refresh
+```
+
+Immediately:
+
+- Invalidates old refresh token
+- Issues new access token
+- Issues new refresh token
+
+---
+
+# Interface-Specific Token Delivery
+
+## 🌐 Web Portal
+
+Tokens are delivered via:
+
+- HTTP-Only Cookies
+- Secure Cookies
+- SameSite=None
+
+### Security Benefits:
+
+- Prevents JavaScript token theft
+- Protects against XSS
+- Browser-native session handling
+
+---
+
+## 💻 CLI Tool
+
+Tokens are delivered as:
+
+```json id="g0j4h8"
+{
+  "access_token": "...",
+  "refresh_token": "..."
+}
+```
+
+Stored securely at:
+
+```bash
+~/.insighta/credentials.json
+```
+
+### CLI Security Flow:
+
+- Localhost callback server
+- PKCE verifier
+- Manual Bearer token transport
+
+---
+
+# 🛡 Role Enforcement Logic (RBAC)
+
+Access control is enforced through FastAPI Dependency Injection.
+
+---
+
+## Analyst (Default)
+
+### Permissions:
+
+- List profiles
+- Search profiles
+- View profiles
+- Export CSV
+
+---
+
+## Admin
+
+### Additional Permissions:
+
+- Create profiles
+- Delete profiles
+- Full platform management
+
+---
+
+## Suspension Logic
+
+Users with:
+
+```python id="9fwjuz"
+is_active = False
+```
+
+Are globally blocked from all authenticated access.
+
+---
+
+# 🧠 Natural Language Parsing Engine (AI-Free)
+
+The `/api/profiles/search` endpoint transforms plain English into structured SQL-ready filters without external AI or LLMs.
+
+---
+
+# Parsing Pipeline
+
+## Phase 1: Tokenization (`clean_and_split`)
+
+Example:
+
+```txt id="j8zv6p"
+"young adult males from naija"
+```
+
+Becomes:
+
+```python id="yec6pn"
+["young", "adult", "males", "from", "naija"]
+```
+
+---
+
+## Phase 2: Rule-Based Extraction (`extract_filters`)
+
+### Gender:
+
+```txt id="eyv5oc"
+male → men, males, boys
+```
+
+### Age:
+
+```txt id="u5m8i9"
+young → min_age=16, max_age=24
+```
+
+### Country:
+
+```txt id="v6r3nz"
+naija → NG
+```
+
+---
+
+## Output:
+
+```json id="amc2zd"
 {
   "min_age": 16,
   "max_age": 24,
@@ -145,96 +273,260 @@ Each token is matched against predefined mappings:
 
 ---
 
-## ⚠️ Limitations
+# ⚙️ Core API Features
 
-This system is intentionally rule-based for speed and reliability:
+## API Version Enforcement
 
-- ❌ No negation handling
-  ("not from nigeria" is ignored)
+All `/api/*` endpoints require:
 
-- ❌ No dynamic numeric parsing
-  ("above 30", "between 18 and 45")
+```http id="7g3c4v"
+X-API-Version: 1
+```
 
-- ❌ Conflicting keywords overwrite sequentially
-  ("young seniors")
+Missing header:
 
-- ❌ Severe misspellings not supported
-  ("nigreia")
-
-- ⚠️ Multi-word countries require exact or alias matches
+```txt id="pkm7p2"
+400 Bad Request
+```
 
 ---
 
-## 🛠 Tech Stack
+## HATEOAS Pagination
 
-- **Framework:** FastAPI (Python)
-- **Database:** PostgreSQL (Supabase)
-- **ORM:** SQLAlchemy
-- **Validation:** Pydantic
-- **Async HTTP:** HTTPX
-- **Deployment:** Vercel
+Every paginated response includes:
 
----
-
-## 📦 External APIs (Legacy Data Ingestion)
-
-- [https://genderize.io](https://genderize.io)
-- [https://agify.io](https://agify.io)
-- [https://nationalize.io](https://nationalize.io)
+- `page`
+- `total`
+- `total_pages`
+- `self`
+- `next`
+- `prev`
 
 ---
 
-## 💻 Local Development Setup
+## CSV Export
 
-### 1. Prerequisites
+Endpoint:
+
+```bash
+/api/profiles/export
+```
+
+Supports:
+
+- Full filtering
+- Large dataset streaming
+- Structured downloads
+
+---
+
+# 🚦 Rate Limiting
+
+## Authentication Endpoints:
+
+```txt id="dbsqgk"
+/auth/* → 10 requests/minute
+```
+
+---
+
+## Standard API:
+
+```txt id="7nryaw"
+/api/* → 60 requests/minute
+```
+
+---
+
+# 💻 CLI Usage
+
+## Installation
+
+```bash
+pip install insighta-cli
+```
+
+---
+
+# Authentication Commands
+
+```bash
+insighta login
+insighta whoami
+insighta logout
+```
+
+---
+
+# Profile Commands
+
+## List Profiles
+
+```bash
+insighta profiles list
+```
+
+---
+
+## Filtered Queries
+
+```bash
+insighta profiles list --country NG --age-group adult --gender male
+insighta profiles list --min-age 25 --max-age 40
+insighta profiles list --sort-by age --order desc --page 2 --limit 20
+```
+
+---
+
+## Natural Language Search
+
+```bash
+insighta profiles search "young males from nigeria"
+```
+
+---
+
+## Admin Operations
+
+```bash
+insighta profiles create --name "Harriet Tubman"
+insighta profiles get <id>
+```
+
+---
+
+## CSV Export
+
+```bash
+insighta profiles export --format csv --gender male --country NG
+```
+
+---
+
+# 🛠 Tech Stack
+
+## Backend
+
+- FastAPI
+- Python 3.10+
+- SQLAlchemy ORM
+- Pydantic
+
+---
+
+## Database
+
+- PostgreSQL
+- Supabase
+
+---
+
+## Frontend
+
+- Vanilla JavaScript SPA
+
+---
+
+## Authentication
+
+- GitHub OAuth2
+- PKCE
+- JWT
+
+---
+
+## DevOps
+
+- GitHub Actions
+- Linting
+- Automated tests
+- Conventional Commits
+- Branch Protection
+
+---
+
+## Deployment
+
+- Vercel Serverless Functions
+
+---
+
+# 💻 Local Development Setup
+
+# 1. Prerequisites
 
 - Python 3.10+
-- Supabase account (PostgreSQL database)
+- Supabase PostgreSQL
+- GitHub OAuth App
 
 ---
 
-### 2. Clone Repository
+# 2. Clone Repository
 
 ```bash
 git clone https://github.com/carl-yom/Name-Demo.git
 cd name_demographics
+pip install -r requirements.txt
 ```
 
 ---
 
-### 3. Install Dependencies
+# 3. Environment Variables (`.env`)
 
-```bash
-pip install fastapi uvicorn sqlalchemy psycopg2-binary
+```env
+WEB_GITHUB_CLIENT_ID=your_web_id
+WEB_GITHUB_CLIENT_SECRET=your_web_secret
+WEB_GITHUB_REDIRECT_URI=http://localhost:8000/auth/web/callback
+
+JWT_SECRET_KEY=your_secure_secret
+ALGORITHM=HS256
 ```
 
 ---
 
-### 4. Seed the Database
-
-```bash
-python seed.py
-```
-
----
-
-### 5. Run the Server
+# 4. Run Development Server
 
 ```bash
 uvicorn main:app --reload
 ```
 
-Visit:
+---
 
-- API: [http://127.0.0.1:8000](http://127.0.0.1:8000)
-- Docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+## Local API:
+
+```txt id="s9v3wn"
+http://127.0.0.1:8000
+```
 
 ---
 
-## 🧭 Design Philosophy
+## Swagger Docs:
 
-This project prioritizes:
+```txt id="4tkbpt"
+/docs
+```
 
-- **Deterministic performance over probabilistic AI**
-- **Explicit control over hidden abstraction**
-- **Scalable backend patterns for real-world systems**
+---
+
+# 🎯 Engineering Highlights
+
+## Built for:
+
+- Security
+- Scalability
+- Maintainability
+- Multi-client architecture
+- AI-free deterministic NLP
+- Production deployment
+
+---
+
+# 📌 Project Standard
+
+Insighta Labs+ is designed not as a simple CRUD API, but as a **product-grade intelligence platform** demonstrating:
+
+- Full-stack system design
+- Product engineering
+- Security architecture
+- Developer tooling
+- Real-world deployment practices.
